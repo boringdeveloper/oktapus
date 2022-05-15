@@ -2,7 +2,6 @@
 # http://git-scm.com/docs/gitignore
 
 # for frontend/ionic-okta
-
 *~
 *.sw[mnpcod]
 .tmp
@@ -32,3 +31,6 @@ frontend/ionic-okta/node_modules
 frontend/ionic-okta/platforms
 frontend/ionic-okta/plugins
 frontend/ionic-okta/www
+
+# for backend/okta-node-api
+backend/okta-node-api/node_modules
