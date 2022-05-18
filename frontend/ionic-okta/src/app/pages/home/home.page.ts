@@ -25,9 +25,9 @@ export class HomePage implements OnInit, OnDestroy {
     }));
     
     // Get User Info
-    this.oktaSvc.authClient.token.getUserInfo().then((user) => {
+    this.oktaSvc.getUserInfo().then((user) => {
       this.userInfo = user;
-    })
+    });
   }
 
   ngOnDestroy(): void {
