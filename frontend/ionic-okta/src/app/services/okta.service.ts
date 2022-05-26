@@ -56,7 +56,7 @@ export class OktaService {
 
         openUri: (res) => {
             const urlParams = new URLSearchParams(res);
-            const state: string = 'test';
+            const state: string = `state-${this.uuidv4()}`;
             const nonce: string = urlParams.get('nonce');
             const code_challenge: string = urlParams.get('code_challenge');
             const code_challenge_method: string = urlParams.get('code_challenge_method');
@@ -287,6 +287,12 @@ export class OktaService {
                 reject({ success: false, message: 'Okta flow has been terminated' });
             });
         });
+    }
+
+    uuidv4(): string {
+        return (<any>[1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+            (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
     }
     
     get isMobile() : boolean {

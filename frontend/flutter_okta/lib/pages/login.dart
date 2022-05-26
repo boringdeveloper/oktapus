@@ -1,12 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_okta/models/tokens.model.dart';
 import 'package:flutter_okta/pages/home.dart';
+import 'package:flutter_okta/utilities/constants.dart';
 import 'package:flutter_okta/utilities/utilities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uni_links/uni_links.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
+import 'package:http/http.dart' as http;
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -16,7 +21,6 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  Uri? _initialURI;
   Uri? _currentURI;
   Object? _err;
 
@@ -62,30 +66,28 @@ class _LoginPageState extends State<LoginPage> {
 
   login() async {
     var codeVerifier = getRandomString(43);
-    var codeChallenge = encryptString(codeVerifier);
+    var codeChallenge = generateCodeChallenge(codeVerifier);
 
-    print(codeVerifier);
-    print(codeChallenge);
+    debugPrint('codeVerifier: $codeVerifier');
+    debugPrint('codeChallenge: $codeChallenge');
 
     final prefs = await SharedPreferences.getInstance();
 
     await prefs.setString('code_verifier', codeVerifier);
     await prefs.setString('code_challenge', codeChallenge);
 
-    // const authorizeUrl = "https://dev-88557974.okta.com/oauth2/default/v1/authorize?client_id=0oabygpxgk9lXaMgF0h7&response_type=code&scope=openid&redirect_uri=yourApp%3A%2Fcallback&state=state-8600b31f-52d1-4dca-987c-386e3d8967e9&code_challenge_method=S256&code_challenge=qjrzSW9gMiUgpUvqgEPE4_-8swvyCtfOVvg55o5S_es";
-
     final authorizeUrl = Uri(
       scheme: 'https',
-      host: 'dev-88557974.okta.com',
-      path: 'oauth2/default/v1/authorize',
+      host: oktaConfig['host'],
+      path: 'oauth2/default${endpoints['authorize']}',
       queryParameters: {
-        'client_id': '0oa51dt9j4AeK6eXP5d7',
+        'client_id': oktaConfig['clientId'],
         'response_type': 'code',
         'scope': 'openid profile email offline_access device_sso',
-        'redirect_uri': 'https://okta.nickromero.dev/signin',
+        'redirect_uri': oktaConfig['redirectUri'],
         'code_challenge_method': 'S256',
         'code_challenge': codeChallenge,
-        'state': 'test'
+        'state': 'state-${const Uuid().v4()}'
       },
     );
 
@@ -113,6 +115,25 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
         debugPrint('Received URI: $uri');
+
+        // Get Url Query Params
+        var parsedParams = {};
+        var url = uri.toString();
+
+        // check for query paramaters
+        if (url.contains('?')) {
+          var params = url.split('?')[1].split('&');
+
+          for (var param in params) {
+            var keyValue = param.split('=');
+            parsedParams[keyValue[0]] = keyValue[1];
+          }
+        }
+
+        debugPrint('params: $parsedParams');
+
+        exchangeCodeForToken('authorization_code', params: parsedParams);
+
         setState(() {
           _currentURI = uri;
           _err = null;
@@ -131,6 +152,38 @@ class _LoginPageState extends State<LoginPage> {
           }
         });
       });
+    }
+  }
+
+  exchangeCodeForToken(String grantType, {dynamic params}) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    var url =
+        'https://${oktaConfig['host']}/oauth2/default${endpoints['token']}';
+    var body = {
+      'grant_type': grantType,
+      'client_id': oktaConfig['clientId'],
+      'code': Uri.encodeComponent(params['code']),
+      'code_verifier': prefs.getString('code_verifier'),
+      'redirect_uri': oktaConfig['redirectUri']
+    };
+
+    var response = await http.post(
+      Uri.parse(url),
+      body: body,
+      headers: {'cache-control': 'no-cache', 'accept': 'application/json'},
+    );
+
+    if (response.statusCode == 200) {
+      var responseData = Tokens.fromJson(jsonDecode(response.body));
+
+      debugPrint('access token: ${responseData.accessToken}');
+      debugPrint('id token: ${responseData.idToken}');
+      debugPrint('refresh token: ${responseData.refreshToken}');
+      debugPrint('device secret: ${responseData.deviceSecret}');
+      debugPrint('scope: ${responseData.scope}');
+      debugPrint('expiresIn: ${responseData.expiresIn}');
+      debugPrint('tokenType: ${responseData.tokenType}');
     }
   }
 }
