@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_okta/pages/home.dart';
 import 'package:flutter_okta/pages/login.dart';
 
 void main() {
@@ -17,6 +18,10 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
       ),
       home: const LoginPage(),
+      routes: {
+        '/login': (context) => const LoginPage(),
+        '/home': (context) => const HomePage(),
+      },
     );
   }
 }

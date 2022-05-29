@@ -4,9 +4,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_okta/models/tokens.model.dart';
+import 'package:flutter_okta/models/user_claims.model.dart';
 import 'package:flutter_okta/pages/home.dart';
 import 'package:flutter_okta/utilities/constants.dart';
 import 'package:flutter_okta/utilities/utilities.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uni_links/uni_links.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -65,11 +67,15 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   login() async {
+    FlutterSecureStorage storage = const FlutterSecureStorage();
+    String? deviceSecret = await storage.read(key: 'OKTA_DEVICE_SECRET');
+
+    if (deviceSecret != null) {
+      debugPrint('deviceSecret: $deviceSecret');
+    }
+
     var codeVerifier = getRandomString(43);
     var codeChallenge = generateCodeChallenge(codeVerifier);
-
-    debugPrint('codeVerifier: $codeVerifier');
-    debugPrint('codeChallenge: $codeChallenge');
 
     final prefs = await SharedPreferences.getInstance();
 
@@ -97,11 +103,6 @@ class _LoginPageState extends State<LoginPage> {
         mode: LaunchMode.externalApplication,
       );
     }
-
-    // Navigator.push(
-    //   context,
-    //   MaterialPageRoute(builder: (context) => const HomePage()),
-    // );
   }
 
   /// Handle incoming links - the ones that the app will receive from the OS
@@ -116,23 +117,23 @@ class _LoginPageState extends State<LoginPage> {
         }
         debugPrint('Received URI: $uri');
 
-        // Get Url Query Params
-        var parsedParams = {};
         var url = uri.toString();
 
         // check for query paramaters
-        if (url.contains('?')) {
-          var params = url.split('?')[1].split('&');
+        if (url.contains(oktaConfig['redirectUri'])) {
+          if (url.contains('?')) {
+            // Get Url Query Params
+            var parsedParams = {};
+            var params = url.split('?')[1].split('&');
 
-          for (var param in params) {
-            var keyValue = param.split('=');
-            parsedParams[keyValue[0]] = keyValue[1];
+            for (var param in params) {
+              var keyValue = param.split('=');
+              parsedParams[keyValue[0]] = keyValue[1];
+            }
+
+            exchangeCodeForToken('authorization_code', params: parsedParams);
           }
         }
-
-        debugPrint('params: $parsedParams');
-
-        exchangeCodeForToken('authorization_code', params: parsedParams);
 
         setState(() {
           _currentURI = uri;
@@ -142,7 +143,7 @@ class _LoginPageState extends State<LoginPage> {
         if (!mounted) {
           return;
         }
-        debugPrint('Error occurred: $err');
+
         setState(() {
           _currentURI = null;
           if (err is FormatException) {
@@ -177,13 +178,66 @@ class _LoginPageState extends State<LoginPage> {
     if (response.statusCode == 200) {
       var responseData = Tokens.fromJson(jsonDecode(response.body));
 
-      debugPrint('access token: ${responseData.accessToken}');
-      debugPrint('id token: ${responseData.idToken}');
-      debugPrint('refresh token: ${responseData.refreshToken}');
-      debugPrint('device secret: ${responseData.deviceSecret}');
-      debugPrint('scope: ${responseData.scope}');
-      debugPrint('expiresIn: ${responseData.expiresIn}');
-      debugPrint('tokenType: ${responseData.tokenType}');
+      await saveTokens(responseData);
+
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+        ModalRoute.withName('/home'),
+      );
+    }
+  }
+
+  Future<void> saveTokens(Tokens tokens) async {
+    FlutterSecureStorage storage = const FlutterSecureStorage();
+    final prefs = await SharedPreferences.getInstance();
+
+    String idToken = tokens.idToken;
+    String accessToken = tokens.accessToken;
+    String refreshToken = tokens.refreshToken;
+    String? deviceSecret = tokens.deviceSecret;
+    String scopes = tokens.scope;
+    int expiresIn = tokens.expiresIn;
+    String tokenType = tokens.tokenType;
+    UserClaims jwt = UserClaims.fromJson(Jwt.parseJwt(idToken));
+    int expiresAt = (DateTime.now().millisecondsSinceEpoch * 1000) + expiresIn;
+
+    Map<String, dynamic> accessTokenObj = AccessToken.toJson(AccessToken(
+      accessToken: accessToken,
+      claims: jwt,
+      tokenType: tokenType,
+      userinfoUrl: oktaConfig['issuer'] + endpoints['userinfo'],
+      expiresAt: expiresAt,
+      authorizeUrl: oktaConfig['issuer'] + endpoints['authorize'],
+      scopes: scopes,
+    ));
+
+    Map<String, dynamic> idTokenObj = IDToken.toJson(IDToken(
+      idToken: idToken,
+      claims: jwt,
+      issuer: oktaConfig['issuer'],
+      clientId: oktaConfig['clientId'],
+      expiresAt: expiresAt,
+      authorizeUrl: oktaConfig['issuer'] + endpoints['authorize'],
+      scopes: scopes,
+    ));
+
+    Map<String, dynamic> refreshTokenObj = RefreshToken.toJson(RefreshToken(
+      refreshToken: refreshToken,
+      tokenUrl: oktaConfig['issuer'] + endpoints['token'],
+      issuer: oktaConfig['issuer'],
+      expiresAt: expiresAt,
+      authorizeUrl: oktaConfig['issuer'] + endpoints['authorize'],
+      scopes: scopes,
+    ));
+
+    await prefs.setString('accessToken', jsonEncode(accessTokenObj));
+    await prefs.setString('idToken', jsonEncode(idTokenObj));
+    await prefs.setString('refreshToken', jsonEncode(refreshTokenObj));
+
+    if (deviceSecret != null) {
+      await storage.write(key: 'OKTA_DEVICE_SECRET', value: deviceSecret);
     }
   }
 }
