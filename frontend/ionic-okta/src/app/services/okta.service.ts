@@ -7,6 +7,7 @@ import { AuthConfig, OAuthService } from 'angular-oauth2-oidc';
 import { HTTP } from '@awesome-cordova-plugins/http/ngx';
 
 declare let window: any;
+declare let cordova: any;
 
 export interface iabResponse {
     success: boolean;
@@ -66,7 +67,7 @@ export class OktaService {
     }
       
     authClient: OktaAuth;
-    private _userInfo;
+    private _secureStorage;
 
     $isAuthenticated: Observable<boolean>;
     private observer: Observer<boolean>;
@@ -87,6 +88,8 @@ export class OktaService {
             this.authClient = new OktaAuth(this.mobileConfig);
         else
             this.authClient = new OktaAuth(this.config);
+
+        this.initSecureStorage();
     }
 
     async isAuthenticated() {
@@ -95,21 +98,23 @@ export class OktaService {
 
     async oktaLogin() {
         if (this.isMobile) {
-            return new Promise((resolve, reject) => {
+            this.getSecureStorage("OKTA_DEVICE_SECRET").then((deviceSecret) => {
+                this.getSecureStorage("OKTA_ID_TOKEN").then((idToken) => {
+                    const params = { deviceSecret: deviceSecret, idToken: idToken };
+                    this.exchangeCodeForToken('urn:ietf:params:oauth:grant-type:token-exchange', params);
+                });
+            }).catch((error) => {
                 this.configureAuthCodeFlowConfig();
                 this.oauthService.loadDiscoveryDocumentAndTryLogin().then((res) => {
                     this.oauthService.initCodeFlow();
-                }),
-                (error) => {
-                    reject();
-                }
+                });
             });
         } else {
             await this.authClient.signInWithRedirect({
                 scopes: this.config.scopes
             }).catch((err) => {
                 console.log('Okta Sign In Failed', err);
-            })
+            });
         }
     }
 
@@ -155,32 +160,51 @@ export class OktaService {
     }
 
     async exchangeCodeForToken(grant_type, params?) {
-        return new Promise((resolve, reject) => {
-            try {
-                const endpoint = `${this.authCodeFlowConfig.issuer}/v1/token`;
-                const body = {
-                    grant_type: grant_type,
-                    client_id: this.authCodeFlowConfig.clientId,
-                    code: encodeURIComponent(params.code),
-                    code_verifier: sessionStorage.getItem('PKCE_verifier'),
-                    redirect_uri: this.authCodeFlowConfig.redirectUri
-                }
+        const endpoint = `${this.authCodeFlowConfig.issuer}/v1/token`;
+        let body = {}
 
-                this.http.setHeader('*', 'Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-                this.http.setHeader('*', 'Access-Control-Allow-Methods', 'POST');
-                this.http.post(endpoint, body, {}).then((result: any) => {
-                    this.saveTokens(result.data);
-                    resolve(JSON.parse(result.data));
+        if (grant_type == 'authorization_code') {
+            body = {
+                grant_type: grant_type,
+                client_id: this.authCodeFlowConfig.clientId,
+                code: encodeURIComponent(params.code),
+                code_verifier: sessionStorage.getItem('PKCE_verifier'),
+                redirect_uri: this.authCodeFlowConfig.redirectUri
+            };
+        } else if (grant_type == 'urn:ietf:params:oauth:grant-type:token-exchange') {
+            body = {
+                grant_type: grant_type,
+                client_id: this.authCodeFlowConfig.clientId,
+                actor_token: params.deviceSecret,
+                actor_token_type: 'urn:x-oath:params:oauth:token-type:device-secret',
+                subject_token: params.idToken,
+                subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+                scope: 'openid offline_access',
+                audience: 'api://default'
+            };
+        } else {
+            throw new Error("Invalid grant type");
+        }
 
-                    if (this.isAuthenticated()) {
-                        this.observer.next(true);
-                    }
-                }), (error) => {
-                    reject(error);
-                }
-            } catch(e) {
-                reject(e);
-            }
+        this.request(endpoint, body).then((result) => {
+            this.saveTokens(result.data);
+
+            if (this.isAuthenticated()) {
+                this.observer.next(true);
+            };
+        });
+    }
+
+    async introspect(token: string, token_type: string, clientId?: string) {
+        const endpoint = `${this.authCodeFlowConfig.issuer}/v1/introspect`;
+        const body = {
+            client_id: clientId!,
+            token: token,
+            token_type_hint: token_type
+        };
+
+        this.request(endpoint, body).then((result) => {
+            console.log('introspect', result);
         });
     }
 
@@ -192,6 +216,18 @@ export class OktaService {
 
     buildLogoutUrl(id_token: string): string {
         return `${this.authCodeFlowConfig.issuer}/v1/logout?client_id=${this.authCodeFlowConfig.clientId}&id_token_hint=${id_token}&post_logout_redirect_uri=${this.authCodeFlowConfig.postLogoutRedirectUri}`;
+    }
+
+    request(endpoint: string, body: {}): Promise<any> {
+        return new Promise((resolve, reject) => {
+            this.http.setHeader('*', 'Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+            this.http.setHeader('*', 'Access-Control-Allow-Methods', 'POST');
+            this.http.post(endpoint, body, {}).then((result: any) => {
+                resolve(JSON.parse(result));
+            }), (error) => {
+                reject(error);
+            }
+        });
     }
 
     saveTokens(tokens): void {
@@ -234,7 +270,9 @@ export class OktaService {
             }
 
             if (_tokens.device_secret) {
-                localStorage.setItem('OKTA_DEVICE_SECRET', _tokens.device_secret);
+                this.setSecureStorage("OKTA_DEVICE_SECRET", _tokens.device_secret).then(() => {
+                    this.setSecureStorage("OKTA_ID_TOKEN", _tokens.id_token);
+                });
             }
         } else {
             console.log('Retreived Okta Tokens', tokens);
@@ -292,6 +330,49 @@ export class OktaService {
         return (<any>[1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
             (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
         );
+    }
+
+    initSecureStorage() {
+        this._secureStorage = new cordova.plugins.SecureStorage(
+            function() {
+                console.log('Success');
+            },
+            function(error) {
+                console.log('Error ' + error);
+            },
+            "oktapus"
+        );
+    }
+
+    getSecureStorage(key: string): Promise<any> {
+        return new Promise((resolve, reject) => {
+            this._secureStorage.get(
+                function(value) {
+                    console.log('retrieved from secure storage', value);
+                    resolve(value);
+                },
+                function(error) {
+                    reject(error);
+                  console.log("Error " + error);
+                },
+                key
+            );
+        });
+    }
+
+    setSecureStorage(key: string, value: string): Promise<any> {
+        return new Promise((resolve, reject) => {
+            this._secureStorage.set(
+                function(key) {
+                    resolve(key);
+                },
+                function(error) {
+                    reject(error);
+                },
+                key,
+                value
+            );
+        });
     }
     
     get isMobile() : boolean {
