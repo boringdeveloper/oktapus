@@ -226,10 +226,9 @@ export class OktaService {
             }
 
             if (_tokens.refresh_token) {
-                const jwt = this.authClient.token.decode(_tokens.id_token);
                 this.authClient.tokenManager.add('refreshToken', {
                     refreshToken: _tokens.refresh_token,
-                    scopes: _tokens.type,
+                    scopes: _tokens.scope,
                     expiresAt: Number(_tokens.expires_in) + Math.floor(Date.now() / 1000),
                 } as RefreshToken);
             }
