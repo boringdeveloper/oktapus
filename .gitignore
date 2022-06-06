@@ -32,6 +32,37 @@ frontend/ionic-okta/platforms
 frontend/ionic-okta/plugins
 frontend/ionic-okta/www
 
+# for frontend/ionic-okta2
+*~
+*.sw[mnpcod]
+.tmp
+*.tmp
+*.tmp.*
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+UserInterfaceState.xcuserstate
+$RECYCLE.BIN/
+
+*.log
+log.txt
+npm-debug.log*
+
+.angular
+.idea
+.ionic
+.sass-cache
+.sourcemaps
+.versions
+.vscode
+frontend/ionic-okta2/coverage
+frontend/ionic-okta2/dist
+frontend/ionic-okta2/node_modules
+frontend/ionic-okta2/platforms
+frontend/ionic-okta2/plugins
+frontend/ionic-okta2/www
+
 
 # for frontend/flutter_okta
 # Miscellaneous

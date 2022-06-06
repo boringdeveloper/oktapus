@@ -89,7 +89,7 @@ export class OktaService {
         else
             this.authClient = new OktaAuth(this.config);
 
-        this.initSecureStorage();
+        // this.initSecureStorage();
     }
 
     async isAuthenticated() {
@@ -98,16 +98,9 @@ export class OktaService {
 
     async oktaLogin() {
         if (this.isMobile) {
-            this.getSecureStorage("OKTA_DEVICE_SECRET").then((deviceSecret) => {
-                this.getSecureStorage("OKTA_ID_TOKEN").then((idToken) => {
-                    const params = { deviceSecret: deviceSecret, idToken: idToken };
-                    this.exchangeCodeForToken('urn:ietf:params:oauth:grant-type:token-exchange', params);
-                });
-            }).catch((error) => {
-                this.configureAuthCodeFlowConfig();
-                this.oauthService.loadDiscoveryDocumentAndTryLogin().then((res) => {
-                    this.oauthService.initCodeFlow();
-                });
+            this.configureAuthCodeFlowConfig();
+            this.oauthService.loadDiscoveryDocumentAndTryLogin().then((res) => {
+                this.oauthService.initCodeFlow();
             });
         } else {
             await this.authClient.signInWithRedirect({
@@ -179,7 +172,7 @@ export class OktaService {
                 actor_token_type: 'urn:x-oath:params:oauth:token-type:device-secret',
                 subject_token: params.idToken,
                 subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
-                scope: 'openid offline_access',
+                scope: 'openid offline_access profile email',
                 audience: 'api://default'
             };
         } else {
@@ -187,7 +180,7 @@ export class OktaService {
         }
 
         this.request(endpoint, body).then((result) => {
-            this.saveTokens(result.data);
+            this.saveTokens(result);
 
             if (this.isAuthenticated()) {
                 this.observer.next(true);
@@ -223,7 +216,7 @@ export class OktaService {
             this.http.setHeader('*', 'Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
             this.http.setHeader('*', 'Access-Control-Allow-Methods', 'POST');
             this.http.post(endpoint, body, {}).then((result: any) => {
-                resolve(JSON.parse(result));
+                resolve(result.data);
             }), (error) => {
                 reject(error);
             }
@@ -346,31 +339,56 @@ export class OktaService {
 
     getSecureStorage(key: string): Promise<any> {
         return new Promise((resolve, reject) => {
-            this._secureStorage.get(
-                function(value) {
-                    console.log('retrieved from secure storage', value);
-                    resolve(value);
+            var ss = new cordova.plugins.SecureStorage(
+                function() {
+                    ss.get(
+                        function(res) {
+                            console.log("Got Shared key: " + res);
+                            resolve(res);
+                        },
+                        function(err) {
+                            console.log("Error getting shared key: " + err);
+                            reject(err);
+                        },
+                        key
+                    );
                 },
-                function(error) {
-                    reject(error);
-                  console.log("Error " + error);
+                function(err) {
+                    console.log("Error creating SecureStorage: " + err);
+                    reject(err);
                 },
-                key
+                "oktapus",
+                {
+                    android: {
+                        packageName: "com.oktapus.second_app"
+                    }
+                }
             );
         });
     }
 
     setSecureStorage(key: string, value: string): Promise<any> {
         return new Promise((resolve, reject) => {
-            this._secureStorage.set(
-                function(key) {
-                    resolve(key);
+            var ss = new cordova.plugins.SecureStorage(
+                function() {
+                    ss.set(
+                        function(res) {
+                            console.log("Shared key set: " + res);
+                            resolve(res);
+                        },
+                        function(err) {
+                            console.log("Error setting shared key: " + err);
+                            reject(err);
+                        },
+                        key,
+                        value
+                    );
                 },
-                function(error) {
-                    reject(error);
+                function(err) {
+                    console.log("Error creating SecureStorage: " + err);
+                    reject(err);
                 },
-                key,
-                value
+                "oktapus"
             );
         });
     }

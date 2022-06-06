@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -190,7 +191,6 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> saveTokens(Tokens tokens) async {
-    FlutterSecureStorage storage = const FlutterSecureStorage();
     final prefs = await SharedPreferences.getInstance();
 
     String idToken = tokens.idToken;
@@ -237,7 +237,11 @@ class _LoginPageState extends State<LoginPage> {
     await prefs.setString('refreshToken', jsonEncode(refreshTokenObj));
 
     if (deviceSecret != null) {
+      debugPrint(deviceSecret);
+      log(idToken);
+      FlutterSecureStorage storage = const FlutterSecureStorage();
       await storage.write(key: 'OKTA_DEVICE_SECRET', value: deviceSecret);
+      await storage.write(key: 'OKTA_ID_TOKEN', value: idToken);
     }
   }
 }

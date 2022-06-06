@@ -1,4 +1,4 @@
-package com.example.flutter_okta
+package com.nickromero.flutter_okta
 
 import io.flutter.embedding.android.FlutterActivity
 

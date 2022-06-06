@@ -1,0 +1,7 @@
+{
+  "name": "ionic-okta2",
+  "integrations": {
+    "cordova": {}
+  },
+  "type": "angular"
+}
